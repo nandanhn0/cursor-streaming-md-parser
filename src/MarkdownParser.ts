@@ -52,6 +52,13 @@ git push origin build-todesktop
 `;
 
 let currentContainer: HTMLElement | null = null; 
+
+// --- Global State for Parsing ---
+let backtickBuffer = 0;       // Buffers backticks to handle split tokens
+let inCodeBlock = false;      // Are we currently inside a ``` block?
+let inInlineCode = false;     // Are we currently inside a ` block?
+let activeElement: HTMLElement | null = null; // The element we are currently streaming text into
+
 // Do not edit this method
 function runStream() {
     currentContainer = document.getElementById('markdownContainer')!;
@@ -77,17 +84,106 @@ function runStream() {
     }, 20);
 }
 
-
-/* 
-Please edit the addToken method to support at least inline codeblocks and codeblocks. Feel free to add any other methods you need.
-This starter code does token streaming with no styling right now. Your job is to write the parsing logic to make the styling work.
-
-Note: don't be afraid of using globals for state. For this challenge, speed is preferred over cleanliness.
- */
 function addToken(token: string) {
     if(!currentContainer) return;
 
-    const span = document.createElement('span');
-    span.innerText = token;
-    currentContainer.appendChild(span);
+    for (let i = 0; i < token.length; i++) {
+        const char = token[i];
+
+        if (char === '`') {
+            backtickBuffer++;
+        } else {
+            // We hit a non-backtick character. 
+            // First, resolve any backticks sitting in the buffer.
+            if (backtickBuffer > 0) {
+                resolveBackticks();
+            }
+
+            // Now process the current character
+            appendChar(char);
+        }
+    }
+    // Note: We DO NOT resolve backticks at the end of the token. 
+    // We must wait for the next token to ensure we catch split triple-backticks.
+}
+
+function resolveBackticks() {
+    const count = backtickBuffer;
+    backtickBuffer = 0; // Reset buffer
+
+    if (count >= 3) {
+        // --- Code Block Logic ---
+        if (inCodeBlock) {
+            // Closing the block
+            inCodeBlock = false;
+            activeElement = null; // Return to writing to main container
+        } else {
+            // Opening a block
+            inCodeBlock = true;
+            const div = document.createElement('div');
+            // Styling for code block
+            div.style.backgroundColor = '#2d2d2d';
+            div.style.color = '#f8f8f2';
+            div.style.padding = '10px';
+            div.style.borderRadius = '5px';
+            div.style.fontFamily = 'monospace';
+            div.style.whiteSpace = 'pre-wrap'; // Preserve formatting
+            div.style.marginBottom = '10px';
+            
+            currentContainer!.appendChild(div);
+            activeElement = div;
+        }
+    } else if (count === 1) {
+        // --- Inline Code Logic ---
+        if (inCodeBlock) {
+            // If inside a block, a single backtick is just content
+            appendChar('`');
+        } else {
+            if (inInlineCode) {
+                // Closing inline code
+                inInlineCode = false;
+                activeElement = null; // Return to writing to main container
+            } else {
+                // Opening inline code
+                inInlineCode = true;
+                const span = document.createElement('span');
+                // Styling for inline code
+                span.style.backgroundColor = '#e0e0e0';
+                span.style.color = '#d63384';
+                span.style.padding = '2px 4px';
+                span.style.borderRadius = '4px';
+                span.style.fontFamily = 'monospace';
+                
+                currentContainer!.appendChild(span);
+                activeElement = span;
+            }
+        }
+    } else {
+        // --- Edge Case (e.g. Double Backticks) ---
+        // Treat as literal text
+        for (let k = 0; k < count; k++) {
+            appendChar('`');
+        }
+    }
+}
+
+function appendChar(char: string) {
+    if (activeElement) {
+        // If we are in a code block or inline code, append to that element
+        activeElement.innerText += char;
+    } else {
+        // Otherwise, append to the main container
+        // We use a simple text node or span to avoid resetting innerHTML
+        // Optimisation: Try to append to the last child if it's a generic span to reduce DOM depth,
+        // otherwise create a new span.
+        const lastChild = currentContainer!.lastElementChild as HTMLElement;
+        // Check if last child is a generic span (not our styled code blocks)
+        if (lastChild && lastChild.tagName === 'SPAN' && !lastChild.style.backgroundColor) {
+             lastChild.innerText += char;
+        } else {
+             const span = document.createElement('span');
+             span.innerText = char;
+             currentContainer!.appendChild(span);
+        }
+    }
 }
